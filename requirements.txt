@@ -1,0 +1,6 @@
+pandas
+matplotlib
+seaborn
+numpy
+google-auth
+google-api-python-client
