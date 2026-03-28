@@ -26,6 +26,9 @@ class SimulationResult:
     months_to_payoff: int = 0
     payoff_date: date = field(default_factory=date.today)
     debt_names: list[str] = field(default_factory=list)
+    can_cover_minimums: bool = True
+    monthly_shortfall: float = 0.0
+    debt_growing: bool = False
 
 
 def _effective_apr(debt: Debt, current_date: date) -> float:
@@ -89,6 +92,14 @@ def simulate(
     max_months = 600
     total_interest = 0.0
     total_paid = 0.0
+
+    # Check if payments can cover minimums
+    sum_min = sum(d["min_payment"] for d in active)
+    biweekly_boost = (1 / 12) if payment_frequency == "biweekly" else 0.0
+    initial_available = monthly_income * (1 + biweekly_boost) - monthly_expenses + extra_payment
+    result.can_cover_minimums = initial_available >= sum_min
+    result.monthly_shortfall = max(0.0, sum_min - initial_available)
+    result.debt_growing = False
 
     for month in range(1, max_months + 1):
         current_date = start_date + timedelta(days=30 * month)
@@ -161,6 +172,18 @@ def simulate(
         month_record["total_payment"] = round(month_total_payment, 2)
         month_record["total_remaining"] = round(sum(d["balance"] for d in active), 2)
         result.monthly_payments.append(month_record)
+
+        # Detect if debt is growing (balance higher than previous month)
+        if month >= 3 and len(result.monthly_payments) >= 3:
+            prev_remaining = result.monthly_payments[-2]["total_remaining"]
+            curr_remaining = month_record["total_remaining"]
+            prev2_remaining = result.monthly_payments[-3]["total_remaining"]
+            if curr_remaining > prev_remaining > prev2_remaining:
+                # Debt is growing for 3 consecutive months — flag and stop
+                result.debt_growing = True
+                result.months_to_payoff = max_months
+                result.payoff_date = start_date + timedelta(days=30 * max_months)
+                break
 
         # Remove paid-off debts
         active = [d for d in active if d["balance"] > 0]

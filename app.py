@@ -154,6 +154,21 @@ if st.session_state.get("run"):
     winner = summary["winner"]
     best = avalanche if winner == "avalanche" else snowball
 
+    # --- Warning: debt growing / insufficient payments ---
+    if best.debt_growing or not best.can_cover_minimums:
+        shortfall = best.monthly_shortfall
+        st.error(
+            f"⚠️ **Your payments can't keep up with interest!** "
+            f"You're **${shortfall:,.0f}/month short** of covering minimum payments. "
+            f"Debt will grow indefinitely at these numbers. "
+            f"Increase income, reduce expenses, or add extra payments to make progress."
+        )
+    elif avalanche.debt_growing or snowball.debt_growing:
+        st.warning(
+            "⚠️ One or both strategies can't pay off the debt at current payment levels. "
+            "Try increasing your extra monthly payment."
+        )
+
     # --- 0. Debt-Free Countdown ---
     countdown = debt_free_countdown(best)
     st.markdown("---")
@@ -260,12 +275,20 @@ if st.session_state.get("run"):
     sens_data = []
     base_aval = scenarios[0]["avalanche"]
     for s in scenarios:
+        aval_months = s["avalanche"]["months"]
+        snow_months = s["snowball"]["months"]
+        aval_interest = s["avalanche"]["total_interest"]
+        # Flag impossible scenarios
+        aval_label = f"{aval_months}" if aval_months < 600 else "Never ⚠️"
+        snow_label = f"{snow_months}" if snow_months < 600 else "Never ⚠️"
+        months_saved = (base_aval["months"] - aval_months) if base_aval["months"] < 600 and aval_months < 600 else 0
+        interest_saved = (base_aval["total_interest"] - aval_interest) if base_aval["months"] < 600 and aval_months < 600 else 0
         sens_data.append({
             "Extra Payment": f"${s['extra']:,.0f}",
-            "Avalanche Months": s["avalanche"]["months"],
-            "Snowball Months": s["snowball"]["months"],
-            "Months Saved": base_aval["months"] - s["avalanche"]["months"],
-            "Interest Saved": f"${base_aval['total_interest'] - s['avalanche']['total_interest']:,.2f}",
+            "Avalanche Months": aval_label,
+            "Snowball Months": snow_label,
+            "Months Saved": months_saved if months_saved > 0 else "—",
+            "Interest Saved": f"${interest_saved:,.2f}" if interest_saved > 0 else "—",
         })
     st.dataframe(pd.DataFrame(sens_data), use_container_width=True, hide_index=True)
     st.plotly_chart(sensitivity_chart(scenarios), use_container_width=True, config=PLOT_CONFIG)

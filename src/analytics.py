@@ -67,8 +67,16 @@ def sensitivity_analysis(
         snow = simulate(debts, income, expenses, "snowball", extra, start_date)
         results.append({
             "extra": extra,
-            "avalanche": {"total_interest": aval.total_interest, "months": aval.months_to_payoff},
-            "snowball": {"total_interest": snow.total_interest, "months": snow.months_to_payoff},
+            "avalanche": {
+                "total_interest": aval.total_interest,
+                "months": aval.months_to_payoff,
+                "debt_growing": aval.debt_growing,
+            },
+            "snowball": {
+                "total_interest": snow.total_interest,
+                "months": snow.months_to_payoff,
+                "debt_growing": snow.debt_growing,
+            },
         })
     return results
 

@@ -139,16 +139,27 @@ def payoff_timeline_chart(result: SimulationResult) -> go.Figure:
 def sensitivity_chart(scenarios: list[dict]) -> go.Figure:
     """Line chart of total interest vs extra payment amount."""
     fig = _base_fig("🔍 Interest vs Extra Payment")
-    extras = [s["extra"] for s in scenarios]
+    # Filter out scenarios where debt is growing (can't pay off)
+    viable = [s for s in scenarios if not s["avalanche"].get("debt_growing") or not s["snowball"].get("debt_growing")]
+    if not viable:
+        viable = scenarios  # show all if none are viable
+    extras = [s["extra"] for s in viable]
     for method, color in [("avalanche", COLORS["green"]), ("snowball", COLORS["blue"])]:
-        interest = [s[method]["total_interest"] for s in scenarios]
-        months = [s[method]["months"] for s in scenarios]
-        fig.add_trace(go.Scatter(
-            x=extras, y=interest, mode="lines+markers", name=method.title(),
-            line=dict(color=color, width=2),
-            customdata=months,
-            hovertemplate="Extra $%{x:,.0f}/mo | Interest: $%{y:,.2f} | Months: %{customdata}<extra>" + method.title() + "</extra>",
-        ))
+        interest = []
+        months = []
+        x_vals = []
+        for s in viable:
+            if not s[method].get("debt_growing"):
+                x_vals.append(s["extra"])
+                interest.append(s[method]["total_interest"])
+                months.append(s[method]["months"])
+        if x_vals:
+            fig.add_trace(go.Scatter(
+                x=x_vals, y=interest, mode="lines+markers", name=method.title(),
+                line=dict(color=color, width=2),
+                customdata=months,
+                hovertemplate="Extra $%{x:,.0f}/mo | Interest: $%{y:,.2f} | Months: %{customdata}<extra>" + method.title() + "</extra>",
+            ))
     fig.update_layout(xaxis_title="Extra Monthly Payment ($)", yaxis_title="Total Interest ($)",
                       xaxis_tickprefix="$", yaxis_tickprefix="$", yaxis_tickformat=",")
     return fig
