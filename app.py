@@ -392,7 +392,75 @@ if st.session_state.get("run"):
         mime="text/csv",
     )
 
-    # --- 9. Summary Card ---
+    # --- 9. Plain English Summary ---
+    st.header("📝 What Does This Actually Mean?")
+
+    total_debt = sum(d.balance for d in debts)
+
+    def _payoff_order(res):
+        """Return list of (name, month) in the order debts get paid off."""
+        alive = set(res.debt_names)
+        order = []
+        for m in res.monthly_payments:
+            still = set(n for n, info in m["debts"].items() if info["balance"] > 0)
+            for name in (alive - still):
+                order.append((name, m["month"]))
+            alive = still
+        return order
+
+    aval_order = _payoff_order(avalanche)
+    snow_order = _payoff_order(snowball)
+
+    def _order_text(order_list):
+        parts = []
+        for name, mo in order_list:
+            d_info = next((d for d in debts if d.name == name), None)
+            apr_note = f" ({d_info.apr}% APR)" if d_info and d_info.apr > 0 else " (0% interest)"
+            parts.append(f"**{name}**{apr_note} in month {mo}")
+        return ", then ".join(parts)
+
+    col_summary_a, col_summary_s = st.columns(2)
+
+    with col_summary_a:
+        st.subheader(f"{'🏆 ' if winner == 'avalanche' else ''}Avalanche")
+        st.markdown(
+            f"You'd be **debt-free in {avalanche.months_to_payoff} months** "
+            f"({avalanche.payoff_date.strftime('%B %Y')}), "
+            f"paying **${avalanche.total_interest:,.0f} in interest** on top of "
+            f"your ${total_debt:,.0f} debt.\n\n"
+            f"This method attacks your **highest interest rate first**, saving you the most money. "
+            f"The trade-off: your smaller balances stick around longer, which can feel slow.\n\n"
+            f"**Payoff order:** {_order_text(aval_order)}"
+        )
+
+    with col_summary_s:
+        st.subheader(f"{'🏆 ' if winner == 'snowball' else ''}Snowball")
+        st.markdown(
+            f"You'd be **debt-free in {snowball.months_to_payoff} months** "
+            f"({snowball.payoff_date.strftime('%B %Y')}), "
+            f"paying **${snowball.total_interest:,.0f} in interest** on top of "
+            f"your ${total_debt:,.0f} debt.\n\n"
+            f"This method attacks your **smallest balance first**, giving you quick wins. "
+            f"The trade-off: high-interest debts grow in the background, costing more overall.\n\n"
+            f"**Payoff order:** {_order_text(snow_order)}"
+        )
+
+    interest_diff = abs(avalanche.total_interest - snowball.total_interest)
+    months_diff = abs(avalanche.months_to_payoff - snowball.months_to_payoff)
+    if interest_diff > 0:
+        st.markdown("---")
+        better = "Avalanche" if winner == "avalanche" else "Snowball"
+        worse = "Snowball" if winner == "avalanche" else "Avalanche"
+        months_note = f" and **{months_diff} month{'s' if months_diff != 1 else ''} sooner**" if months_diff > 0 else ""
+        st.markdown(
+            f"**Bottom line:** {better} saves you **${interest_diff:,.0f}**{months_note} "
+            f"compared to {worse}. "
+            f"If you want to save money, go with **{better}**. "
+            f"If you need the motivation of crossing debts off the list quickly, "
+            f"**Snowball** is psychologically easier — just know it costs a bit more."
+        )
+
+    # --- 10. Summary Card ---
     st.header("📸 Summary Card")
     card_html = f"""
     <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
