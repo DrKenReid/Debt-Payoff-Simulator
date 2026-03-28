@@ -43,11 +43,15 @@ st.markdown("Compare **Avalanche** vs **Snowball** repayment strategies and find
 # ---------------------------------------------------------------------------
 if "debts" not in st.session_state:
     st.session_state.debts = [
-        {"name": "Credit Card A", "balance": 5000.0, "apr": 24.99, "min_payment": 100.0,
+        {"name": "Store Card", "balance": 800.0, "apr": 29.99, "min_payment": 25.0,
          "promo_apr": None, "promo_end": None},
-        {"name": "Credit Card B", "balance": 8500.0, "apr": 18.99, "min_payment": 170.0,
-         "promo_apr": 0.0, "promo_end": "2025-06-01"},
-        {"name": "Store Card", "balance": 1200.0, "apr": 29.99, "min_payment": 25.0,
+        {"name": "Credit Card A", "balance": 12000.0, "apr": 22.99, "min_payment": 240.0,
+         "promo_apr": None, "promo_end": None},
+        {"name": "Personal Loan", "balance": 6500.0, "apr": 11.99, "min_payment": 150.0,
+         "promo_apr": None, "promo_end": None},
+        {"name": "Credit Card B", "balance": 3200.0, "apr": 18.49, "min_payment": 65.0,
+         "promo_apr": 0.0, "promo_end": "2026-09-01"},
+        {"name": "Medical Bill", "balance": 2400.0, "apr": 0.0, "min_payment": 100.0,
          "promo_apr": None, "promo_end": None},
     ]
 
@@ -56,8 +60,8 @@ if "debts" not in st.session_state:
 # ---------------------------------------------------------------------------
 with st.sidebar:
     st.header("💰 Income & Expenses")
-    income = st.number_input("Monthly Take-Home Pay ($)", min_value=0.0, value=4500.0, step=100.0)
-    expenses = st.number_input("Monthly Fixed Expenses ($)", min_value=0.0, value=2200.0, step=100.0)
+    income = st.number_input("Monthly Take-Home Pay ($)", min_value=0.0, value=3800.0, step=100.0)
+    expenses = st.number_input("Monthly Fixed Expenses ($)", min_value=0.0, value=2800.0, step=100.0)
     extra = st.number_input("Extra Monthly Payment ($)", min_value=0.0, value=0.0, step=25.0)
 
     st.divider()
@@ -249,10 +253,12 @@ if st.session_state.get("run"):
 
     # --- 3. Per-Debt Breakdown ---
     st.header("💳 Per-Debt Breakdown")
-    tab1, tab2 = st.tabs(["Avalanche", "Snowball"])
-    with tab1:
+    col_a, col_s = st.columns(2)
+    with col_a:
+        st.subheader("Avalanche")
         st.plotly_chart(per_debt_chart(avalanche, "Avalanche"), use_container_width=True, config=PLOT_CONFIG)
-    with tab2:
+    with col_s:
+        st.subheader("Snowball")
         st.plotly_chart(per_debt_chart(snowball, "Snowball"), use_container_width=True, config=PLOT_CONFIG)
 
     # --- 4. Cumulative Interest ---
@@ -261,10 +267,12 @@ if st.session_state.get("run"):
 
     # --- 5. Payoff Timeline ---
     st.header("📅 Payoff Timeline")
-    t1, t2 = st.tabs(["Avalanche", "Snowball"])
-    with t1:
+    col_t1, col_t2 = st.columns(2)
+    with col_t1:
+        st.subheader("Avalanche")
         st.plotly_chart(payoff_timeline_chart(avalanche), use_container_width=True, config=PLOT_CONFIG)
-    with t2:
+    with col_t2:
+        st.subheader("Snowball")
         st.plotly_chart(payoff_timeline_chart(snowball), use_container_width=True, config=PLOT_CONFIG)
 
     # --- 6. Sensitivity Analysis ---
