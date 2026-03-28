@@ -513,55 +513,91 @@ if st.session_state.get("run"):
     st.header("📸 Summary Card")
     st.markdown("Customize and share your debt payoff plan.")
 
-    card_cols = st.columns(4)
+    # Theme presets
+    CARD_THEMES = {
+        "Midnight": {"bg1": "#1a1a2e", "bg2": "#16213e", "accent": "#2ecc71", "text": "#fafafa", "interest": "#e74c3c", "total": "#3498db", "date": "#f39c12", "muted": "#888"},
+        "Ocean": {"bg1": "#0f3460", "bg2": "#16213e", "accent": "#00d2ff", "text": "#e8e8e8", "interest": "#ff6b6b", "total": "#48dbfb", "date": "#feca57", "muted": "#7f8fa6"},
+        "Sunset": {"bg1": "#2d1b69", "bg2": "#11052c", "accent": "#f97316", "text": "#fafafa", "interest": "#ef4444", "total": "#a78bfa", "date": "#fbbf24", "muted": "#9ca3af"},
+        "Forest": {"bg1": "#1b2e1b", "bg2": "#0d1f0d", "accent": "#4ade80", "text": "#f0fdf4", "interest": "#f87171", "total": "#67e8f9", "date": "#fde047", "muted": "#6b7280"},
+        "Minimal Light": {"bg1": "#ffffff", "bg2": "#f8f9fa", "accent": "#111827", "text": "#111827", "interest": "#dc2626", "total": "#2563eb", "date": "#d97706", "muted": "#6b7280"},
+        "Rose": {"bg1": "#1a1a2e", "bg2": "#2d1f3d", "accent": "#f472b6", "text": "#fdf2f8", "interest": "#fb7185", "total": "#c084fc", "date": "#fbbf24", "muted": "#9ca3af"},
+    }
+
+    card_cols = st.columns([2, 2, 2])
     with card_cols[0]:
-        card_title = st.text_input("Card Title", value="💳 Debt Payoff Plan", key="card_title")
+        theme_name = st.selectbox("Theme", list(CARD_THEMES.keys()), key="card_theme")
+    theme = CARD_THEMES[theme_name]
+
+    # Content options
     with card_cols[1]:
-        card_bg1 = st.color_picker("Background Start", value="#1a1a2e", key="card_bg1")
+        card_title = st.text_input("Card Title", value="💳 Debt Payoff Plan", key="card_title")
     with card_cols[2]:
-        card_bg2 = st.color_picker("Background End", value="#16213e", key="card_bg2")
-    with card_cols[3]:
-        card_accent = st.color_picker("Accent Color", value="#2ecc71", key="card_accent")
+        card_strategy_display = st.selectbox(
+            "Show strategy as",
+            ["Winner only", "Both strategies", "None"],
+            key="card_strategy",
+        )
 
-    card_cols2 = st.columns(4)
-    with card_cols2[0]:
-        card_text_color = st.color_picker("Text Color", value="#fafafa", key="card_text")
-    with card_cols2[1]:
-        card_interest_color = st.color_picker("Interest Color", value="#e74c3c", key="card_int_color")
-    with card_cols2[2]:
-        card_total_color = st.color_picker("Total Paid Color", value="#3498db", key="card_total_color")
-    with card_cols2[3]:
-        card_date_color = st.color_picker("Date Color", value="#f39c12", key="card_date_color")
+    content_cols = st.columns(4)
+    with content_cols[0]:
+        show_months = st.checkbox("Months to payoff", value=True, key="card_months")
+    with content_cols[1]:
+        show_interest = st.checkbox("Total interest", value=True, key="card_interest")
+    with content_cols[2]:
+        show_total_paid = st.checkbox("Total paid", value=True, key="card_total")
+    with content_cols[3]:
+        show_date = st.checkbox("Debt-free date", value=True, key="card_date")
 
-    card_show_strategy = st.checkbox("Show strategy name", value=True, key="card_show_strategy")
+    show_debt_list = st.checkbox("Show individual debts", value=False, key="card_debts")
 
-    strategy_line = f'<p style="text-align:center; color: #888; margin-top: 0;">Best strategy: <b style="color:{card_accent}">{winner.title()}</b></p>' if card_show_strategy else ""
+    # Build strategy line
+    if card_strategy_display == "Winner only":
+        strategy_line = f'<p style="text-align:center; color: {theme["muted"]}; margin-top: 0;">Best strategy: <b style="color:{theme["accent"]}">{winner.title()}</b></p>'
+    elif card_strategy_display == "Both strategies":
+        aval_tag = f'<b style="color:{theme["accent"]}">Avalanche</b> {avalanche.months_to_payoff}mo / ${avalanche.total_interest:,.0f} int'
+        snow_tag = f'<b style="color:{theme["accent"]}">Snowball</b> {snowball.months_to_payoff}mo / ${snowball.total_interest:,.0f} int'
+        strategy_line = f'<p style="text-align:center; color: {theme["muted"]}; margin-top: 0; font-size: 13px;">{aval_tag}&nbsp;&nbsp;•&nbsp;&nbsp;{snow_tag}</p>'
+    else:
+        strategy_line = ""
+
+    # Build stats
+    stat_blocks = []
+    if show_months:
+        stat_blocks.append(f'<div><div style="font-size: 28px; font-weight: bold; color: {theme["accent"]};">{best.months_to_payoff}</div><div style="color: {theme["muted"]};">months</div></div>')
+    if show_interest:
+        stat_blocks.append(f'<div><div style="font-size: 28px; font-weight: bold; color: {theme["interest"]};">${best.total_interest:,.0f}</div><div style="color: {theme["muted"]};">interest</div></div>')
+    if show_total_paid:
+        stat_blocks.append(f'<div><div style="font-size: 28px; font-weight: bold; color: {theme["total"]};">${best.total_paid:,.0f}</div><div style="color: {theme["muted"]};">total paid</div></div>')
+    stats_html = "\n".join(stat_blocks)
+
+    # Build debt list
+    debt_list_html = ""
+    if show_debt_list:
+        debt_items = "".join(
+            f'<div style="display:flex; justify-content:space-between; padding: 2px 0;">'
+            f'<span>{d.name}</span><span style="color:{theme["accent"]}">${d.balance:,.0f}</span></div>'
+            for d in debts if d.balance > 0
+        )
+        debt_list_html = f'<hr style="border-color: #333;"><div style="font-size: 13px; color: {theme["muted"]};">{debt_items}</div>'
+
+    # Build date line
+    date_html = ""
+    if show_date:
+        date_html = f'<hr style="border-color: #333;"><p style="text-align:center; color: {theme["muted"]}; font-size: 14px;">Debt-free by <b style="color:{theme["date"]}">{best.payoff_date.strftime("%B %Y")}</b></p>'
 
     card_html = f"""
-    <div style="background: linear-gradient(135deg, {card_bg1} 0%, {card_bg2} 100%);
+    <div style="background: linear-gradient(135deg, {theme["bg1"]} 0%, {theme["bg2"]} 100%);
                 border-radius: 16px; padding: 32px; max-width: 500px; margin: auto;
-                border: 1px solid {card_accent}; font-family: sans-serif; color: {card_text_color};">
+                border: 1px solid {theme["accent"]}; font-family: sans-serif; color: {theme["text"]};">
         <h2 style="text-align:center; margin-bottom: 8px;">{card_title}</h2>
         {strategy_line}
         <hr style="border-color: #333;">
         <div style="display: flex; justify-content: space-around; text-align: center;">
-            <div>
-                <div style="font-size: 28px; font-weight: bold; color: {card_accent};">{best.months_to_payoff}</div>
-                <div style="color: #888;">months</div>
-            </div>
-            <div>
-                <div style="font-size: 28px; font-weight: bold; color: {card_interest_color};">${best.total_interest:,.0f}</div>
-                <div style="color: #888;">interest</div>
-            </div>
-            <div>
-                <div style="font-size: 28px; font-weight: bold; color: {card_total_color};">${best.total_paid:,.0f}</div>
-                <div style="color: #888;">total paid</div>
-            </div>
+            {stats_html}
         </div>
-        <hr style="border-color: #333;">
-        <p style="text-align:center; color: #888; font-size: 14px;">
-            Debt-free by <b style="color:{card_date_color}">{best.payoff_date.strftime('%B %Y')}</b>
-        </p>
+        {debt_list_html}
+        {date_html}
     </div>
     """
-    st.components.v1.html(card_html, height=320)
+    card_height = 280 + (30 * len(debts) if show_debt_list else 0) + (40 if show_date else 0)
+    st.components.v1.html(card_html, height=card_height)
