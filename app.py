@@ -303,27 +303,72 @@ if st.session_state.get("run"):
 
     # --- 7. Balance Transfer Analysis ---
     st.header("🔄 Balance Transfer Analysis")
-    st.markdown("What if you transferred a balance to a low-APR card?")
+    st.markdown("What if you transferred balances to low-APR cards? Add one or more scenarios below.")
 
     if len(debts) > 0:
-        bt_cols = st.columns(4)
-        with bt_cols[0]:
-            debt_names_list = [d.name for d in debts if d.balance > 0]
-            bt_debt_name = st.selectbox("Transfer which debt?", debt_names_list, key="bt_debt")
-        with bt_cols[1]:
-            bt_fee = st.number_input("Transfer fee (%)", min_value=0.0, value=3.0, step=0.5, key="bt_fee")
-        with bt_cols[2]:
-            bt_apr = st.number_input("New card APR (%)", min_value=0.0, value=0.0, step=0.5, key="bt_apr")
-        with bt_cols[3]:
-            bt_promo = st.number_input("Promo period (months)", min_value=0, value=15, step=1, key="bt_promo")
+        if "bt_scenarios" not in st.session_state:
+            st.session_state.bt_scenarios = [
+                {"debt": "", "fee": 3.0, "apr": 0.0, "promo": 15}
+            ]
 
-        if st.button("📊 Analyze Transfer", key="bt_run"):
-            # Find the index in the original debts list
-            bt_idx = next(i for i, d in enumerate(debts) if d.name == bt_debt_name)
-            bt_result = simulate_balance_transfer(
-                debts, bt_idx, bt_fee, bt_apr, bt_promo, income, expenses,
-                extra, winner, start, freq_key,
-            )
+        debt_names_list = [d.name for d in debts if d.balance > 0]
+
+        for i, scenario in enumerate(st.session_state.bt_scenarios):
+            bt_cols = st.columns([3, 1.5, 1.5, 1.5, 0.5])
+            with bt_cols[0]:
+                default_idx = debt_names_list.index(scenario["debt"]) if scenario["debt"] in debt_names_list else 0
+                st.session_state.bt_scenarios[i]["debt"] = st.selectbox(
+                    "Transfer which debt?", debt_names_list, index=default_idx, key=f"bt_debt_{i}",
+                )
+            with bt_cols[1]:
+                st.session_state.bt_scenarios[i]["fee"] = st.number_input(
+                    "Fee (%)", min_value=0.0, value=scenario["fee"], step=0.5, key=f"bt_fee_{i}",
+                )
+            with bt_cols[2]:
+                st.session_state.bt_scenarios[i]["apr"] = st.number_input(
+                    "New APR (%)", min_value=0.0, value=scenario["apr"], step=0.5, key=f"bt_apr_{i}",
+                )
+            with bt_cols[3]:
+                st.session_state.bt_scenarios[i]["promo"] = st.number_input(
+                    "Promo (mo)", min_value=0, value=scenario["promo"], step=1, key=f"bt_promo_{i}",
+                )
+            with bt_cols[4]:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if len(st.session_state.bt_scenarios) > 1:
+                    if st.button("🗑️", key=f"bt_del_{i}"):
+                        st.session_state.bt_scenarios.pop(i)
+                        st.rerun()
+
+        if st.button("➕ Add Another Transfer", key="bt_add"):
+            st.session_state.bt_scenarios.append({"debt": debt_names_list[0], "fee": 3.0, "apr": 0.0, "promo": 15})
+            st.rerun()
+
+        if st.button("📊 Analyze Transfers", key="bt_run"):
+            import copy
+            # Apply all transfers sequentially
+            modified_debts = [copy.copy(d) for d in debts]
+            for scenario in st.session_state.bt_scenarios:
+                bt_name = scenario["debt"]
+                bt_idx = next((i for i, d in enumerate(modified_debts) if d.name == bt_name and d.balance > 0), None)
+                if bt_idx is not None:
+                    source = modified_debts[bt_idx]
+                    transferred_balance = source.balance * (1 + scenario["fee"] / 100)
+                    source.balance = 0.0
+                    promo_end = start + timedelta(days=30 * scenario["promo"])
+                    bt_card = Debt(
+                        name=f"BT: {bt_name}",
+                        balance=round(transferred_balance, 2),
+                        apr=scenario["apr"],
+                        min_payment=source.min_payment,
+                        promo_apr=0.0 if scenario["apr"] > 0 else None,
+                        promo_end_date=promo_end if scenario["apr"] > 0 else None,
+                    )
+                    if scenario["apr"] == 0:
+                        bt_card.promo_apr = 0.0
+                        bt_card.promo_end_date = start + timedelta(days=30 * 600)
+                    modified_debts.append(bt_card)
+
+            bt_result = simulate(modified_debts, income, expenses, winner, extra, start, freq_key)
             interest_diff = best.total_interest - bt_result.total_interest
             months_diff = best.months_to_payoff - bt_result.months_to_payoff
 
@@ -336,11 +381,11 @@ if st.session_state.get("run"):
                           delta=f"{'faster' if months_diff > 0 else 'slower'}")
 
             if interest_diff > 0:
-                st.success(f"✅ The balance transfer saves you **${interest_diff:,.2f}**! Do it. 🎉")
+                st.success(f"✅ The balance transfer(s) save you **${interest_diff:,.2f}**! Do it. 🎉")
             elif interest_diff == 0:
                 st.info("🤷 Break-even. Transfer if you want the psychological win.")
             else:
-                st.warning(f"⚠️ The transfer costs you **${abs(interest_diff):,.2f}** more. Skip it.")
+                st.warning(f"⚠️ The transfer(s) cost you **${abs(interest_diff):,.2f}** more. Skip it.")
 
             st.plotly_chart(
                 balance_transfer_comparison_chart(best, bt_result),
@@ -427,11 +472,13 @@ if st.session_state.get("run"):
             f"You'd be **debt-free in {avalanche.months_to_payoff} months** "
             f"({avalanche.payoff_date.strftime('%B %Y')}), "
             f"paying **${avalanche.total_interest:,.0f} in interest** on top of "
-            f"your ${total_debt:,.0f} debt.\n\n"
-            f"This method attacks your **highest interest rate first**, saving you the most money. "
-            f"The trade-off: your smaller balances stick around longer, which can feel slow.\n\n"
-            f"**Payoff order:** {_order_text(aval_order)}"
+            f"your ${total_debt:,.0f} debt."
         )
+        st.markdown(
+            f"This method attacks your **highest interest rate first**, saving you the most money. "
+            f"The trade-off: your smaller balances stick around longer, which can feel slow."
+        )
+        st.markdown(f"**Payoff order:** {_order_text(aval_order)}")
 
     with col_summary_s:
         st.subheader(f"{'🏆 ' if winner == 'snowball' else ''}Snowball")
@@ -439,11 +486,13 @@ if st.session_state.get("run"):
             f"You'd be **debt-free in {snowball.months_to_payoff} months** "
             f"({snowball.payoff_date.strftime('%B %Y')}), "
             f"paying **${snowball.total_interest:,.0f} in interest** on top of "
-            f"your ${total_debt:,.0f} debt.\n\n"
-            f"This method attacks your **smallest balance first**, giving you quick wins. "
-            f"The trade-off: high-interest debts grow in the background, costing more overall.\n\n"
-            f"**Payoff order:** {_order_text(snow_order)}"
+            f"your ${total_debt:,.0f} debt."
         )
+        st.markdown(
+            f"This method attacks your **smallest balance first**, giving you quick wins. "
+            f"The trade-off: high-interest debts grow in the background, costing more overall."
+        )
+        st.markdown(f"**Payoff order:** {_order_text(snow_order)}")
 
     interest_diff = abs(avalanche.total_interest - snowball.total_interest)
     months_diff = abs(avalanche.months_to_payoff - snowball.months_to_payoff)
@@ -462,30 +511,56 @@ if st.session_state.get("run"):
 
     # --- 10. Summary Card ---
     st.header("📸 Summary Card")
+    st.markdown("Customize and share your debt payoff plan.")
+
+    card_cols = st.columns(4)
+    with card_cols[0]:
+        card_title = st.text_input("Card Title", value="💳 Debt Payoff Plan", key="card_title")
+    with card_cols[1]:
+        card_bg1 = st.color_picker("Background Start", value="#1a1a2e", key="card_bg1")
+    with card_cols[2]:
+        card_bg2 = st.color_picker("Background End", value="#16213e", key="card_bg2")
+    with card_cols[3]:
+        card_accent = st.color_picker("Accent Color", value="#2ecc71", key="card_accent")
+
+    card_cols2 = st.columns(4)
+    with card_cols2[0]:
+        card_text_color = st.color_picker("Text Color", value="#fafafa", key="card_text")
+    with card_cols2[1]:
+        card_interest_color = st.color_picker("Interest Color", value="#e74c3c", key="card_int_color")
+    with card_cols2[2]:
+        card_total_color = st.color_picker("Total Paid Color", value="#3498db", key="card_total_color")
+    with card_cols2[3]:
+        card_date_color = st.color_picker("Date Color", value="#f39c12", key="card_date_color")
+
+    card_show_strategy = st.checkbox("Show strategy name", value=True, key="card_show_strategy")
+
+    strategy_line = f'<p style="text-align:center; color: #888; margin-top: 0;">Best strategy: <b style="color:{card_accent}">{winner.title()}</b></p>' if card_show_strategy else ""
+
     card_html = f"""
-    <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    <div style="background: linear-gradient(135deg, {card_bg1} 0%, {card_bg2} 100%);
                 border-radius: 16px; padding: 32px; max-width: 500px; margin: auto;
-                border: 1px solid #2ecc71; font-family: sans-serif; color: #fafafa;">
-        <h2 style="text-align:center; margin-bottom: 8px;">💳 Debt Payoff Plan</h2>
-        <p style="text-align:center; color: #888; margin-top: 0;">Best strategy: <b style="color:#2ecc71">{winner.title()}</b></p>
+                border: 1px solid {card_accent}; font-family: sans-serif; color: {card_text_color};">
+        <h2 style="text-align:center; margin-bottom: 8px;">{card_title}</h2>
+        {strategy_line}
         <hr style="border-color: #333;">
         <div style="display: flex; justify-content: space-around; text-align: center;">
             <div>
-                <div style="font-size: 28px; font-weight: bold; color: #2ecc71;">{best.months_to_payoff}</div>
+                <div style="font-size: 28px; font-weight: bold; color: {card_accent};">{best.months_to_payoff}</div>
                 <div style="color: #888;">months</div>
             </div>
             <div>
-                <div style="font-size: 28px; font-weight: bold; color: #e74c3c;">${best.total_interest:,.0f}</div>
+                <div style="font-size: 28px; font-weight: bold; color: {card_interest_color};">${best.total_interest:,.0f}</div>
                 <div style="color: #888;">interest</div>
             </div>
             <div>
-                <div style="font-size: 28px; font-weight: bold; color: #3498db;">${best.total_paid:,.0f}</div>
+                <div style="font-size: 28px; font-weight: bold; color: {card_total_color};">${best.total_paid:,.0f}</div>
                 <div style="color: #888;">total paid</div>
             </div>
         </div>
         <hr style="border-color: #333;">
         <p style="text-align:center; color: #888; font-size: 14px;">
-            Debt-free by <b style="color:#f39c12">{best.payoff_date.strftime('%B %Y')}</b>
+            Debt-free by <b style="color:{card_date_color}">{best.payoff_date.strftime('%B %Y')}</b>
         </p>
     </div>
     """
