@@ -1,28 +1,48 @@
-# Debt Payoff Simulator
+# 💳 Debt Payoff Simulator
 
-A simulator that compares the **Avalanche** and **Snowball** debt repayment strategies using your own financial data stored in Google Sheets. Calculates optimal payment distribution, tracks cumulative interest, and visualises payoff timelines.
+## 🚀 Live App
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/DrKenReid/Debt-Payoff-Simulator/blob/main/Debt_Payoff_Simulator.ipynb)
+**[Launch the Debt Payoff Simulator →](https://debt-payoff-simulator.streamlit.app)**
+
+No signup. No data stored. Just cold, hard math vs your credit card debt.
+
+---
+
+A simulator that compares the **Avalanche** and **Snowball** debt repayment strategies using your own financial data. Calculates optimal payment distribution, tracks cumulative interest, and visualises payoff timelines — all with a dark theme and a healthy dose of financial reality checks.
+
+## ✨ Features
+
+| Feature | Description |
+|---|---|
+| **Strategy Comparison** | Avalanche (highest APR first) vs Snowball (lowest balance first) side-by-side |
+| **Debt Health Score** | 0–100 score with grade and roast-level commentary |
+| **Balance Transfer Simulator** | Model moving a balance to a 0% card — see if the fee is worth it |
+| **Bi-weekly Payments** | Toggle bi-weekly to see how 13 annual payments saves interest |
+| **Sensitivity Analysis** | "What if I paid $X more?" across multiple scenarios |
+| **Debt-Free Countdown** | Big, motivating payoff date and progress display |
+| **Interactive Charts** | Plotly charts with download buttons (PNG export) |
+| **CSV Export** | Download your full month-by-month payment plan |
+| **Promo APR Support** | Model 0% intro rates with expiry dates |
+| **Summary Card** | Beautiful visual summary of your payoff plan |
+
+## 📖 How to Use
+
+1. **Enter your income and expenses** in the sidebar
+2. **Add your debts** — name, balance, APR, minimum payment (promo rates optional)
+3. **Choose payment frequency** — Monthly or Bi-weekly
+4. **Hit "Run Simulation"** and explore the results
+5. **Try the Balance Transfer analyzer** to see if consolidating makes sense
+6. **Download your payment plan** as CSV for tracking
 
 ## Techniques Demonstrated
 
 | Category | Details |
 |---|---|
-| **Financial Modelling** | Monthly interest accrual, APR expiry handling, minimum payment logic |
+| **Financial Modelling** | Monthly interest accrual, APR expiry handling, minimum payment logic, balance transfers |
 | **Strategy Comparison** | Avalanche (highest APR first) vs. Snowball (lowest balance first) |
-| **Google Sheets Integration** | Automated folder/spreadsheet creation, data read/write via Sheets API |
-| **Visualisation** | Line plots, stacked area charts, cumulative interest comparison (Matplotlib/Seaborn) |
-| **OOP Design** | Single `DebtSimulator` class encapsulating setup, simulation, plotting, and export |
-
-## How to Use
-
-1. Open the notebook in Google Colab using the badge above.
-2. Authenticate with your Google account when prompted.
-3. The notebook automatically creates a **Debt Repayment Simulator** folder in your Google Drive with a sample spreadsheet.
-4. Edit the spreadsheet with your own debts, income, and expenses — or run with the provided example data.
-5. Run the second cell to simulate both repayment methods and view the comparison.
-
-The simulator outputs detailed month-by-month payment plans back to Google Sheets for reference.
+| **Bi-weekly Payments** | 26 half-payments/year = 13 monthly equivalents for accelerated payoff |
+| **Visualisation** | Interactive Plotly charts with human-friendly tooltips (dark theme) |
+| **Sensitivity Analysis** | Parametric sweep across extra payment amounts |
 
 ## Example Outputs
 
@@ -30,6 +50,26 @@ The simulator outputs detailed month-by-month payment plans back to Google Sheet
 |---|---|
 | ![Total Debt Over Time](img/plot_1.png) | ![Cumulative Interest](img/plot_3.png) |
 | ![Debt Per Card — Avalanche vs. Snowball](img/plot_2.png) | |
+
+## Running Locally
+
+### With pip
+
+```bash
+git clone https://github.com/DrKenReid/Debt-Payoff-Simulator.git
+cd Debt-Payoff-Simulator
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+### With Docker
+
+```bash
+docker build -t debt-sim .
+docker run -p 8501:8501 debt-sim
+```
+
+Then open [http://localhost:8501](http://localhost:8501).
 
 ## A Note on Strategy Choice
 

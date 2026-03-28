@@ -1,10 +1,12 @@
 __pycache__/
 *.pyc
 *.pyo
-.ipynb_checkpoints/
+.pytest_cache/
+.streamlit/secrets.toml
 *.egg-info/
 dist/
 build/
 .env
-*.log
-user_options.json
+venv/
+data/
+img/
