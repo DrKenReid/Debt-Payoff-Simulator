@@ -33,7 +33,7 @@ from src.analytics import (
 # ---------------------------------------------------------------------------
 # Page config
 # ---------------------------------------------------------------------------
-st.set_page_config(page_title="💳 Debt Payoff Simulator", page_icon="💳", layout="wide")
+st.set_page_config(page_title="Debt Payoff Simulator", page_icon="💳", layout="wide")
 
 st.title("💳 Debt Payoff Simulator")
 st.markdown("Compare **Avalanche** vs **Snowball** repayment strategies and find your fastest path to $0.")
