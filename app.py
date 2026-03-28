@@ -549,6 +549,13 @@ if st.session_state.get("run"):
         show_date = st.checkbox("Debt-free date", value=True, key="card_date")
 
     show_debt_list = st.checkbox("Show individual debts", value=False, key="card_debts")
+    show_plan = st.checkbox("Show payment plan breakdown", value=False, key="card_plan")
+
+    if show_plan:
+        plan_strategy = st.radio("Strategy for plan", ["Avalanche", "Snowball"], horizontal=True, key="card_plan_strategy")
+        plan_result = avalanche if plan_strategy == "Avalanche" else snowball
+    else:
+        plan_result = None
 
     # Build strategy line
     if card_strategy_display == "Winner only":
@@ -580,6 +587,49 @@ if st.session_state.get("run"):
         )
         debt_list_html = f'<hr style="border-color: #333;"><div style="font-size: 13px; color: {theme["muted"]};">{debt_items}</div>'
 
+    # Build payment plan breakdown
+    plan_html = ""
+    plan_rows = 0
+    if show_plan and plan_result and plan_result.monthly_payments:
+        # For each debt, find: months active, typical payment, and when paid off
+        debt_plans = []
+        for dname in plan_result.debt_names:
+            payments_for_debt = []
+            paid_off_month = None
+            for m in plan_result.monthly_payments:
+                info = m["debts"].get(dname)
+                if info and info["balance"] > 0:
+                    payments_for_debt.append(info["payment"])
+                elif info and info["balance"] == 0 and payments_for_debt:
+                    payments_for_debt.append(info["payment"])
+                    paid_off_month = m["month"]
+                    break
+                elif not info and paid_off_month is None and payments_for_debt:
+                    paid_off_month = m["month"] - 1
+                    break
+            if not paid_off_month and payments_for_debt:
+                paid_off_month = len(plan_result.monthly_payments)
+            if payments_for_debt:
+                avg_payment = sum(payments_for_debt) / len(payments_for_debt)
+                debt_plans.append((dname, len(payments_for_debt), avg_payment, paid_off_month))
+
+        plan_strategy_name = "Avalanche" if plan_result.method == "avalanche" else "Snowball"
+        plan_items = "".join(
+            f'<div style="padding: 3px 0;">'
+            f'<span style="color:{theme["accent"]}">→</span> '
+            f'{name}: ~<b>${avg_pay:,.0f}/mo</b> for <b>{months}mo</b>'
+            f'</div>'
+            for name, months, avg_pay, _ in debt_plans
+        )
+        plan_rows = len(debt_plans)
+        plan_html = (
+            f'<hr style="border-color: #333;">'
+            f'<div style="font-size: 13px; color: {theme["muted"]};">'
+            f'<div style="text-align:center; margin-bottom:6px; color:{theme["text"]}; font-size:14px;">'
+            f'<b>{plan_strategy_name} Plan</b></div>'
+            f'{plan_items}</div>'
+        )
+
     # Build date line
     date_html = ""
     if show_date:
@@ -596,8 +646,9 @@ if st.session_state.get("run"):
             {stats_html}
         </div>
         {debt_list_html}
+        {plan_html}
         {date_html}
     </div>
     """
-    card_height = 280 + (30 * len(debts) if show_debt_list else 0) + (40 if show_date else 0)
+    card_height = 280 + (30 * len(debts) if show_debt_list else 0) + (35 * plan_rows + 40 if plan_rows > 0 else 0) + (40 if show_date else 0)
     st.components.v1.html(card_html, height=card_height)
