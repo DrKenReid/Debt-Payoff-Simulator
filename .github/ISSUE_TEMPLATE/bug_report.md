@@ -8,6 +8,6 @@ labels: bug
 
 **What did you expect?**
 
-**Environment** (Colab / local / other):
+**Environment** (live app / running locally — include browser or Python version):
 
 **Screenshots** (if applicable):

@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import csv
 import io
-import json
-from datetime import date, timedelta
+from datetime import date
 
 import pandas as pd
 import streamlit as st
 
-from src.simulator import Debt, simulate, simulate_balance_transfer, compare
+from src.simulator import BalanceTransfer, Debt, simulate_balance_transfer, compare
 from src.charts import (
     PLOT_CONFIG,
     total_debt_chart,
@@ -22,7 +21,6 @@ from src.charts import (
     balance_transfer_comparison_chart,
 )
 from src.analytics import (
-    comparison_summary,
     sensitivity_analysis,
     fun_savings_comparisons,
     payoff_commentary,
@@ -63,6 +61,10 @@ with st.sidebar:
     income = st.number_input("Monthly Take-Home Pay ($)", min_value=0.0, value=3800.0, step=100.0)
     expenses = st.number_input("Monthly Fixed Expenses ($)", min_value=0.0, value=2800.0, step=100.0)
     extra = st.number_input("Extra Monthly Payment ($)", min_value=0.0, value=0.0, step=25.0)
+    st.caption(
+        "The simulator assumes everything left after expenses goes toward debt "
+        "each month — minimums first, the rest to the priority debt."
+    )
 
     st.divider()
     st.header("⏱️ Payment Frequency")
@@ -154,8 +156,7 @@ if st.session_state.get("run"):
     comparison = compare(debts, income, expenses, extra, start, freq_key)
     avalanche = comparison["avalanche"]
     snowball = comparison["snowball"]
-    summary = comparison_summary(avalanche, snowball)
-    winner = summary["winner"]
+    winner = comparison["winner"]
     best = avalanche if winner == "avalanche" else snowball
 
     # --- Warning: debt growing / insufficient payments ---
@@ -194,11 +195,11 @@ if st.session_state.get("run"):
             unsafe_allow_html=True,
         )
     with cd_col3:
-        pct = countdown["percent_complete"]
+        interest_share = countdown["interest_share"]
         st.markdown(
             f"<div style='text-align:center;'>"
-            f"<h1 style='color:#f39c12; margin-bottom:0;'>{pct:.0f}%</h1>"
-            f"<p style='color:#888; font-size:18px;'>of journey mapped</p>"
+            f"<h1 style='color:#f39c12; margin-bottom:0;'>{interest_share:.0f}%</h1>"
+            f"<p style='color:#888; font-size:18px;'>of payments go to interest</p>"
             f"</div>",
             unsafe_allow_html=True,
         )
@@ -232,12 +233,12 @@ if st.session_state.get("run"):
         st.metric("Total Interest", f"${snowball.total_interest:,.2f}")
         st.metric("Total Paid", f"${snowball.total_paid:,.2f}")
 
-    if summary["interest_saved"] > 0:
-        savings = summary["interest_saved"]
+    if comparison["interest_saved"] > 0:
+        savings = comparison["interest_saved"]
         fun = fun_savings_comparisons(savings)
         st.success(
             f"The **{winner.title()}** method saves you **${savings:,.2f}** in interest "
-            f"and **{summary['months_saved']}** month(s). "
+            f"and **{comparison['months_saved']}** month(s). "
             + (f"That's {fun[0]}!" if fun else "")
         )
 
@@ -278,7 +279,7 @@ if st.session_state.get("run"):
     # --- 6. Sensitivity Analysis ---
     st.header("🔍 Sensitivity Analysis")
     st.markdown("What if you paid more each month?")
-    scenarios = sensitivity_analysis(debts, income, expenses, [0, 50, 100, 150, 200, 300, 500], start)
+    scenarios = sensitivity_analysis(debts, income, expenses, [0, 50, 100, 150, 200, 300, 500], start, freq_key)
 
     sens_data = []
     base_aval = scenarios[0]["avalanche"]
@@ -344,31 +345,18 @@ if st.session_state.get("run"):
             st.rerun()
 
         if st.button("📊 Analyze Transfers", key="bt_run"):
-            import copy
-            # Apply all transfers sequentially
-            modified_debts = [copy.copy(d) for d in debts]
-            for scenario in st.session_state.bt_scenarios:
-                bt_name = scenario["debt"]
-                bt_idx = next((i for i, d in enumerate(modified_debts) if d.name == bt_name and d.balance > 0), None)
-                if bt_idx is not None:
-                    source = modified_debts[bt_idx]
-                    transferred_balance = source.balance * (1 + scenario["fee"] / 100)
-                    source.balance = 0.0
-                    promo_end = start + timedelta(days=30 * scenario["promo"])
-                    bt_card = Debt(
-                        name=f"BT: {bt_name}",
-                        balance=round(transferred_balance, 2),
-                        apr=scenario["apr"],
-                        min_payment=source.min_payment,
-                        promo_apr=0.0 if scenario["apr"] > 0 else None,
-                        promo_end_date=promo_end if scenario["apr"] > 0 else None,
-                    )
-                    if scenario["apr"] == 0:
-                        bt_card.promo_apr = 0.0
-                        bt_card.promo_end_date = start + timedelta(days=30 * 600)
-                    modified_debts.append(bt_card)
-
-            bt_result = simulate(modified_debts, income, expenses, winner, extra, start, freq_key)
+            transfers = [
+                BalanceTransfer(
+                    debt_name=s["debt"],
+                    fee_pct=s["fee"],
+                    new_apr=s["apr"],
+                    promo_months=s["promo"],
+                )
+                for s in st.session_state.bt_scenarios
+            ]
+            bt_result = simulate_balance_transfer(
+                debts, transfers, income, expenses, extra, winner, start, freq_key
+            )
             interest_diff = best.total_interest - bt_result.total_interest
             months_diff = best.months_to_payoff - bt_result.months_to_payoff
 
@@ -475,8 +463,8 @@ if st.session_state.get("run"):
             f"your ${total_debt:,.0f} debt."
         )
         st.markdown(
-            f"This method attacks your **highest interest rate first**, saving you the most money. "
-            f"The trade-off: your smaller balances stick around longer, which can feel slow."
+            "This method attacks your **highest interest rate first**, saving you the most money. "
+            "The trade-off: your smaller balances stick around longer, which can feel slow."
         )
         st.markdown(f"**Payoff order:** {_order_text(aval_order)}")
 
@@ -489,8 +477,8 @@ if st.session_state.get("run"):
             f"your ${total_debt:,.0f} debt."
         )
         st.markdown(
-            f"This method attacks your **smallest balance first**, giving you quick wins. "
-            f"The trade-off: high-interest debts grow in the background, costing more overall."
+            "This method attacks your **smallest balance first**, giving you quick wins. "
+            "The trade-off: high-interest debts grow in the background, costing more overall."
         )
         st.markdown(f"**Payoff order:** {_order_text(snow_order)}")
 
@@ -652,3 +640,12 @@ if st.session_state.get("run"):
     """
     card_height = 280 + (30 * len(debts) if show_debt_list else 0) + (35 * plan_rows + 40 if plan_rows > 0 else 0) + (40 if show_date else 0)
     st.components.v1.html(card_html, height=card_height)
+
+# ---------------------------------------------------------------------------
+# Footer
+# ---------------------------------------------------------------------------
+st.divider()
+st.caption(
+    "⚠️ For educational purposes only — this is a simplified model, not financial advice. "
+    "Nothing you enter is stored."
+)

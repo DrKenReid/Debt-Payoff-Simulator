@@ -6,9 +6,10 @@ Compare **Avalanche** vs **Snowball** debt repayment strategies. No signup, no d
 
 > *"You could be debt-free 14 months sooner and save $2,847 in interest. But that requires discipline, which is how you got here."*
 
+[![CI](https://github.com/DrKenReid/Debt-Payoff-Simulator/actions/workflows/ci.yml/badge.svg)](https://github.com/DrKenReid/Debt-Payoff-Simulator/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.11+-blue?logo=python&logoColor=white)
-![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-FF4B4B?logo=streamlit&logoColor=white)
-![License](https://img.shields.io/badge/License-CC_BY_4.0-green)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.30+-FF4B4B?logo=streamlit&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
@@ -39,10 +40,23 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+## 🧮 How the Math Works
+
+The engine is deliberately simple and its assumptions are explicit:
+
+- Interest compounds monthly at APR ÷ 12, applied before each payment.
+- The simulator assumes **everything left after expenses goes toward debt** each month — minimum payments first, the remainder to the strategy's priority debt. "Extra Monthly Payment" adds on top of that budget.
+- **Bi-weekly mode** models the classic trick: 26 half-payments = 13 full payments per year, i.e. your monthly debt budget × 13/12.
+- **Promo APRs** apply until their end date, then revert to the standard APR. Balance transfers add the fee to the transferred balance and start a 0% promo window.
+- Simulations cap at 600 months; if total debt grows three months in a row, the plan is flagged as never paying off.
+
+> ⚠️ For educational purposes only — this is a simplified model, not financial advice.
+
 ## 🧪 Testing
 
 ```bash
-pytest tests/ -v
+pip install -r requirements-dev.txt
+pytest
 ```
 
 ## 🤝 Contributing
@@ -51,7 +65,7 @@ PRs welcome! See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## 📄 License
 
-[CC BY 4.0](LICENSE)
+[MIT](LICENSE)
 
 ## Related
 

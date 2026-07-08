@@ -2,51 +2,27 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
-from dateutil.relativedelta import relativedelta
+from datetime import date
+
 from src.simulator import Debt, SimulationResult, simulate
 
 
 def debt_free_countdown(result: SimulationResult) -> dict:
-    """Calculate debt-free countdown info assuming start is now."""
-    now = date.today()
-    payoff = result.payoff_date
-    months_remaining = result.months_to_payoff
-    total_debt_start = 0.0
-    if result.monthly_payments:
-        first = result.monthly_payments[0]
-        # Total remaining at start ≈ first month remaining + first month payment
-        total_debt_start = first["total_remaining"] + first["total_payment"]
-    current_remaining = 0.0
-    if result.monthly_payments:
-        current_remaining = result.monthly_payments[-1]["total_remaining"]
-    paid_so_far = total_debt_start - current_remaining
-    pct = (paid_so_far / total_debt_start * 100) if total_debt_start > 0 else 100.0
+    """Headline payoff stats for a simulation result.
+
+    ``interest_share`` is the percentage of every dollar paid over the plan
+    that goes to interest rather than principal.
+    """
+    principal = result.total_paid - result.total_interest
+    interest_share = (
+        result.total_interest / result.total_paid * 100 if result.total_paid > 0 else 0.0
+    )
 
     return {
-        "payoff_date": payoff,
-        "months_remaining": months_remaining,
-        "percent_complete": round(pct, 1),
-        "total_debt_start": round(total_debt_start, 2),
-    }
-
-
-def comparison_summary(avalanche: SimulationResult, snowball: SimulationResult) -> dict:
-    """Generate a comparison summary between the two strategies."""
-    interest_diff = abs(avalanche.total_interest - snowball.total_interest)
-    months_diff = abs(avalanche.months_to_payoff - snowball.months_to_payoff)
-    winner = "avalanche" if avalanche.total_interest <= snowball.total_interest else "snowball"
-
-    return {
-        "winner": winner,
-        "interest_saved": round(interest_diff, 2),
-        "months_saved": months_diff,
-        "avalanche_interest": avalanche.total_interest,
-        "snowball_interest": snowball.total_interest,
-        "avalanche_months": avalanche.months_to_payoff,
-        "snowball_months": snowball.months_to_payoff,
-        "avalanche_total_paid": avalanche.total_paid,
-        "snowball_total_paid": snowball.total_paid,
+        "payoff_date": result.payoff_date,
+        "months_remaining": result.months_to_payoff,
+        "interest_share": round(interest_share, 1),
+        "total_debt_start": round(principal, 2),
     }
 
 
@@ -56,6 +32,7 @@ def sensitivity_analysis(
     expenses: float,
     extra_range: list[float] | None = None,
     start_date: date | None = None,
+    payment_frequency: str = "monthly",
 ) -> list[dict]:
     """Run simulations across a range of extra payment amounts."""
     if extra_range is None:
@@ -63,8 +40,8 @@ def sensitivity_analysis(
 
     results = []
     for extra in extra_range:
-        aval = simulate(debts, income, expenses, "avalanche", extra, start_date)
-        snow = simulate(debts, income, expenses, "snowball", extra, start_date)
+        aval = simulate(debts, income, expenses, "avalanche", extra, start_date, payment_frequency)
+        snow = simulate(debts, income, expenses, "snowball", extra, start_date, payment_frequency)
         results.append({
             "extra": extra,
             "avalanche": {

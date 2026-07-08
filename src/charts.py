@@ -143,7 +143,6 @@ def sensitivity_chart(scenarios: list[dict]) -> go.Figure:
     viable = [s for s in scenarios if not s["avalanche"].get("debt_growing") or not s["snowball"].get("debt_growing")]
     if not viable:
         viable = scenarios  # show all if none are viable
-    extras = [s["extra"] for s in viable]
     for method, color in [("avalanche", COLORS["green"]), ("snowball", COLORS["blue"])]:
         interest = []
         months = []

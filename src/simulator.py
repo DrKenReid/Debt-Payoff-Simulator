@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import date, timedelta
-from typing import Optional
+from dataclasses import dataclass, field, replace
+from datetime import date
+
+from dateutil.relativedelta import relativedelta
+
+MAX_MONTHS = 600
 
 
 @dataclass
@@ -13,8 +16,18 @@ class Debt:
     balance: float
     apr: float  # as percentage, e.g. 24.99
     min_payment: float
-    promo_apr: Optional[float] = None
-    promo_end_date: Optional[date] = None
+    promo_apr: float | None = None
+    promo_end_date: date | None = None
+
+
+@dataclass
+class BalanceTransfer:
+    """A single balance-transfer scenario applied to one debt."""
+
+    debt_name: str
+    fee_pct: float  # one-time fee, added to the transferred balance
+    new_apr: float  # APR once the promo period ends
+    promo_months: int  # months of 0% intro APR
 
 
 @dataclass
@@ -53,6 +66,11 @@ def simulate(
 ) -> SimulationResult:
     """Run a debt payoff simulation.
 
+    The model assumes the entire monthly budget (income − expenses + extra)
+    goes toward debt: minimum payments first, then the remainder to the
+    strategy's priority debt. Interest compounds monthly at APR / 12,
+    applied before each payment.
+
     Args:
         debts: List of debts to pay off.
         monthly_income: Monthly take-home pay.
@@ -60,8 +78,9 @@ def simulate(
         method: "avalanche" (highest APR first) or "snowball" (lowest balance first).
         extra_payment: Additional monthly payment toward debt.
         start_date: Simulation start date (defaults to today).
-        payment_frequency: "monthly" or "biweekly". Biweekly effectively
-            makes 13 monthly payments per year (26 half-payments).
+        payment_frequency: "monthly" or "biweekly". Bi-weekly makes 26
+            half-payments per year — 13 full payments — so the monthly
+            debt budget is multiplied by 13/12.
 
     Returns:
         SimulationResult with month-by-month breakdown.
@@ -69,12 +88,7 @@ def simulate(
     if start_date is None:
         start_date = date.today()
 
-    # Filter out zero-balance debts
-    active = [
-        {"name": d.name, "balance": d.balance, "apr": d.apr, "min_payment": d.min_payment,
-         "promo_apr": d.promo_apr, "promo_end_date": d.promo_end_date}
-        for d in debts if d.balance > 0
-    ]
+    active = [replace(d) for d in debts if d.balance > 0]
 
     if not active:
         return SimulationResult(
@@ -86,127 +100,135 @@ def simulate(
 
     result = SimulationResult(
         method=method,
-        debt_names=[d["name"] for d in active],
+        debt_names=[d.name for d in active],
     )
 
-    max_months = 600
     total_interest = 0.0
     total_paid = 0.0
 
-    # Check if payments can cover minimums
-    sum_min = sum(d["min_payment"] for d in active)
-    biweekly_boost = (1 / 12) if payment_frequency == "biweekly" else 0.0
-    initial_available = monthly_income * (1 + biweekly_boost) - monthly_expenses + extra_payment
-    result.can_cover_minimums = initial_available >= sum_min
-    result.monthly_shortfall = max(0.0, sum_min - initial_available)
-    result.debt_growing = False
+    # Bi-weekly: 26 half-payments/year = 13 full payments = 13/12 of the budget
+    boost = 13 / 12 if payment_frequency == "biweekly" else 1.0
+    monthly_budget = max((monthly_income - monthly_expenses + extra_payment) * boost, 0.0)
 
-    for month in range(1, max_months + 1):
-        current_date = start_date + timedelta(days=30 * month)
+    sum_min = sum(d.min_payment for d in active)
+    result.can_cover_minimums = monthly_budget >= sum_min
+    result.monthly_shortfall = max(0.0, sum_min - monthly_budget)
+
+    for month in range(1, MAX_MONTHS + 1):
+        current_date = start_date + relativedelta(months=month)
         month_record: dict = {"month": month, "date": current_date.isoformat(), "debts": {}}
 
         # Apply interest
+        interest_this_month: dict[str, float] = {}
         for d in active:
-            debt_obj = Debt(d["name"], d["balance"], d["apr"], d["min_payment"],
-                           d["promo_apr"], d["promo_end_date"])
-            apr = _effective_apr(debt_obj, current_date)
-            interest = d["balance"] * (apr / 100 / 12)
-            d["balance"] += interest
-            d["_interest"] = interest
+            apr = _effective_apr(d, current_date)
+            interest = d.balance * (apr / 100 / 12)
+            d.balance += interest
+            interest_this_month[d.name] = interest
             total_interest += interest
 
-        # Calculate available funds
-        # Bi-weekly: 26 half-payments/year = 13/12 monthly payments
-        biweekly_boost = (1 / 12) if payment_frequency == "biweekly" else 0.0
-        effective_income = monthly_income * (1 + biweekly_boost)
-
-        sum_min = sum(min(d["min_payment"], d["balance"]) for d in active)
-        available = effective_income - monthly_expenses - sum_min + extra_payment
-        available = max(available, 0.0)
-
-        # Sort for strategy
+        # Priority order for the strategy
         if method == "avalanche":
-            order = sorted(range(len(active)), key=lambda i: (
-                -_effective_apr(
-                    Debt(active[i]["name"], active[i]["balance"], active[i]["apr"],
-                         active[i]["min_payment"], active[i]["promo_apr"], active[i]["promo_end_date"]),
-                    current_date),
-                active[i]["balance"]
-            ))
+            order = sorted(active, key=lambda d: (-_effective_apr(d, current_date), d.balance))
         else:  # snowball
-            order = sorted(range(len(active)), key=lambda i: active[i]["balance"])
+            order = sorted(active, key=lambda d: d.balance)
 
-        # Pay minimums
-        remaining = effective_income - monthly_expenses + extra_payment
-        remaining = max(remaining, 0.0)
-        payments = [0.0] * len(active)
-
-        for i in range(len(active)):
-            pay = min(active[i]["min_payment"], active[i]["balance"], remaining)
-            payments[i] = pay
+        # Pay minimums first
+        remaining = monthly_budget
+        payments = {d.name: 0.0 for d in active}
+        for d in active:
+            pay = min(d.min_payment, d.balance, remaining)
+            payments[d.name] = pay
             remaining -= pay
 
-        # Distribute extra to priority debt
-        for i in order:
+        # Distribute the remainder to priority debts
+        for d in order:
             if remaining <= 0:
                 break
-            extra = min(remaining, active[i]["balance"] - payments[i])
+            extra = min(remaining, d.balance - payments[d.name])
             if extra > 0:
-                payments[i] += extra
+                payments[d.name] += extra
                 remaining -= extra
 
         # Apply payments
         month_total_payment = 0.0
-        for i in range(len(active)):
-            active[i]["balance"] -= payments[i]
-            if active[i]["balance"] < 0.01:
-                active[i]["balance"] = 0.0
-            month_total_payment += payments[i]
-            month_record["debts"][active[i]["name"]] = {
-                "balance": round(active[i]["balance"], 2),
-                "payment": round(payments[i], 2),
-                "interest": round(active[i].get("_interest", 0), 2),
+        for d in active:
+            d.balance -= payments[d.name]
+            if d.balance < 0.01:
+                d.balance = 0.0
+            month_total_payment += payments[d.name]
+            month_record["debts"][d.name] = {
+                "balance": round(d.balance, 2),
+                "payment": round(payments[d.name], 2),
+                "interest": round(interest_this_month[d.name], 2),
             }
 
         total_paid += month_total_payment
         month_record["total_payment"] = round(month_total_payment, 2)
-        month_record["total_remaining"] = round(sum(d["balance"] for d in active), 2)
+        month_record["total_remaining"] = round(sum(d.balance for d in active), 2)
         result.monthly_payments.append(month_record)
 
         # Detect if debt is growing (balance higher than previous month)
-        if month >= 3 and len(result.monthly_payments) >= 3:
+        if month >= 3:
             prev_remaining = result.monthly_payments[-2]["total_remaining"]
             curr_remaining = month_record["total_remaining"]
             prev2_remaining = result.monthly_payments[-3]["total_remaining"]
             if curr_remaining > prev_remaining > prev2_remaining:
                 # Debt is growing for 3 consecutive months — flag and stop
                 result.debt_growing = True
-                result.months_to_payoff = max_months
-                result.payoff_date = start_date + timedelta(days=30 * max_months)
+                result.months_to_payoff = MAX_MONTHS
+                result.payoff_date = start_date + relativedelta(months=MAX_MONTHS)
                 break
 
         # Remove paid-off debts
-        active = [d for d in active if d["balance"] > 0]
+        active = [d for d in active if d.balance > 0]
 
         if not active:
             result.months_to_payoff = month
             result.payoff_date = current_date
             break
     else:
-        result.months_to_payoff = max_months
-        result.payoff_date = start_date + timedelta(days=30 * max_months)
+        result.months_to_payoff = MAX_MONTHS
+        result.payoff_date = start_date + relativedelta(months=MAX_MONTHS)
 
     result.total_interest = round(total_interest, 2)
     result.total_paid = round(total_paid, 2)
     return result
 
 
+def apply_balance_transfers(
+    debts: list[Debt],
+    transfers: list[BalanceTransfer],
+    start_date: date,
+) -> list[Debt]:
+    """Return a new debt list with each transfer applied in order.
+
+    Each transfer zeroes out its source debt and adds a new card holding
+    the balance plus the transfer fee, at 0% until the promo end date and
+    the new APR afterwards. Transfers naming an unknown or already-zero
+    debt are skipped.
+    """
+    new_debts = [replace(d) for d in debts]
+    for t in transfers:
+        source = next((d for d in new_debts if d.name == t.debt_name and d.balance > 0), None)
+        if source is None:
+            continue
+        transferred_balance = source.balance * (1 + t.fee_pct / 100)
+        source.balance = 0.0
+        new_debts.append(Debt(
+            name=f"BT: {t.debt_name}",
+            balance=round(transferred_balance, 2),
+            apr=t.new_apr,
+            min_payment=source.min_payment,
+            promo_apr=0.0,
+            promo_end_date=start_date + relativedelta(months=t.promo_months),
+        ))
+    return new_debts
+
+
 def simulate_balance_transfer(
     debts: list[Debt],
-    from_debt_idx: int,
-    transfer_fee_pct: float,
-    new_apr: float,
-    promo_months: int,
+    transfers: list[BalanceTransfer],
     income: float,
     expenses: float,
     extra_payment: float = 0.0,
@@ -214,39 +236,10 @@ def simulate_balance_transfer(
     start_date: date | None = None,
     payment_frequency: str = "monthly",
 ) -> SimulationResult:
-    """Simulate paying off debts after a balance transfer.
-
-    Moves the balance from debts[from_debt_idx] to a new card with
-    the given APR/promo terms, adding the transfer fee to the new balance.
-    """
+    """Simulate paying off debts after one or more balance transfers."""
     if start_date is None:
         start_date = date.today()
-
-    import copy
-    new_debts = [copy.copy(d) for d in debts]
-    source = new_debts[from_debt_idx]
-    transferred_balance = source.balance * (1 + transfer_fee_pct / 100)
-
-    # Zero out the source debt
-    source.balance = 0.0
-
-    # Create new balance-transfer card
-    promo_end = start_date + timedelta(days=30 * promo_months)
-    bt_card = Debt(
-        name=f"BT: {source.name}",
-        balance=round(transferred_balance, 2),
-        apr=new_apr,
-        min_payment=source.min_payment,
-        promo_apr=0.0 if new_apr > 0 else None,
-        promo_end_date=promo_end if new_apr > 0 else None,
-    )
-    # If new_apr is 0 for the whole life, no promo needed
-    if new_apr == 0:
-        bt_card.promo_apr = 0.0
-        bt_card.promo_end_date = start_date + timedelta(days=30 * 600)  # effectively forever
-
-    new_debts.append(bt_card)
-
+    new_debts = apply_balance_transfers(debts, transfers, start_date)
     return simulate(new_debts, income, expenses, method, extra_payment, start_date, payment_frequency)
 
 
